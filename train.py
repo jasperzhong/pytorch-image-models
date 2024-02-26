@@ -848,6 +848,7 @@ def main():
     results = []
     try:
         for epoch in range(start_epoch, num_epochs):
+            epoch_time = time.time()
             if hasattr(dataset_train, 'set_epoch'):
                 dataset_train.set_epoch(epoch)
             elif args.distributed and hasattr(loader_train.sampler, 'set_epoch'):
@@ -932,6 +933,7 @@ def main():
                 'train': train_metrics,
                 'validation': eval_metrics,
             })
+            print(f"Epoch time: {epoch_time - time.time():.2f}s")
 
     except KeyboardInterrupt:
         pass
@@ -1171,6 +1173,7 @@ def validate(
                 )
 
     metrics = OrderedDict([('loss', losses_m.avg), ('top1', top1_m.avg), ('top5', top5_m.avg)])
+    _logger.info(metrics)
 
     return metrics
 
