@@ -17,7 +17,7 @@ from .clip_grad import dispatch_clip_grad
 # START MONKEY PATCH
 
 
-def step(self, optimizer, *args, **kwargs):
+def step(self, optimizer, undo, *args, **kwargs):
     """
     :meth:`step` carries out the following two operations:
 
@@ -71,7 +71,7 @@ def step(self, optimizer, *args, **kwargs):
                ) > 0, "No inf checks were recorded for this optimizer."
 
     retval = self._maybe_opt_step(optimizer, optimizer_state, *args, **kwargs)
-    if "undo" in kwargs and kwargs["undo"] is True:
+    if undo:
         assert hasattr(
             optimizer, "undo"), "The optimizer does not have an undo method"
         optimizer.undo()
