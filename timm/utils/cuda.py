@@ -77,7 +77,9 @@ def step(self, optimizer, undo, *args, **kwargs):
                 if p.grad is not None:
                     some_param = p.clone().detach()
                     if "momentum_buffer" in optimizer.state[p]:
-                        some_momentum = optimizer.state[p]["momentum_buffer"].clone().detach()
+                        some_momentum = optimizer.state[p]["momentum_buffer"].clone(
+                        ).detach()
+                    break
 
     retval = self._maybe_opt_step(optimizer, optimizer_state, *args, **kwargs)
     if undo:
@@ -93,9 +95,11 @@ def step(self, optimizer, undo, *args, **kwargs):
                     print("undo-then-redo param check: ",
                           torch.allclose(some_param, some_param_undo))
                     if "momentum_buffer" in optimizer.state[p]:
-                        some_momentum_undo = optimizer.state[p]["momentum_buffer"].clone().detach()
+                        some_momentum_undo = optimizer.state[p]["momentum_buffer"].clone(
+                        ).detach()
                         print("undo-then-redo momentum check: ",
                               torch.allclose(some_momentum, some_momentum_undo))
+                    break
 
         # redo
         retval = self._maybe_opt_step(
