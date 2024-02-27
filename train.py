@@ -409,7 +409,7 @@ def _parse_args():
 
 
 def main():
-    utils.setup_default_logging()
+    utils.setup_default_logging(log_path='train_imagenet.log')
     args, args_text = _parse_args()
 
     if args.device_modules:
