@@ -7,7 +7,13 @@ export NCCL_SOCKET_IFNAME=enp225s0
 
 # get the IP address of the current node
 IP=`hostname -I | awk '{print $1}'`
-IS_MASTER=$([ "$IP" = "$MASTER_IP" ] && echo "is master")
+if [ "$IP" = "$MASTER_IP" ]; then
+    IS_MASTER=1
+    echo "This is the master node"
+else
+    IS_MASTER=0
+    echo "This is a worker node"
+fi
 
 OMP_NUM_THREADS=20 torchrun \
     --nnodes=$NNODES \
