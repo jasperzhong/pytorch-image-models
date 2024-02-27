@@ -8,10 +8,10 @@ export NCCL_SOCKET_IFNAME=enp225s0
 # get the IP address of the current node
 IP=`hostname -I | awk '{print $1}'`
 if [ "$IP" = "$MASTER_IP" ]; then
-    IS_MASTER=1
+    IS_MASTER=true
     echo "This is the master node"
 else
-    IS_MASTER=0
+    IS_MASTER=false
     echo "This is a worker node"
 fi
 
