@@ -32,10 +32,14 @@ import yaml
 from torch.nn.parallel import DistributedDataParallel as NativeDDP
 
 from timm import utils
-from timm.data import create_dataset, create_loader, resolve_data_config, Mixup, FastCollateMixup, AugMixDataset
-from timm.layers import convert_splitbn_model, convert_sync_batchnorm, set_fast_norm
-from timm.loss import JsdCrossEntropy, SoftTargetCrossEntropy, BinaryCrossEntropy, LabelSmoothingCrossEntropy
-from timm.models import create_model, safe_model_name, resume_checkpoint, load_checkpoint, model_parameters
+from timm.data import (AugMixDataset, FastCollateMixup, Mixup, create_dataset,
+                       create_loader, resolve_data_config)
+from timm.layers import (convert_splitbn_model, convert_sync_batchnorm,
+                         set_fast_norm)
+from timm.loss import (BinaryCrossEntropy, JsdCrossEntropy,
+                       LabelSmoothingCrossEntropy, SoftTargetCrossEntropy)
+from timm.models import (create_model, load_checkpoint, model_parameters,
+                         resume_checkpoint, safe_model_name)
 from timm.optim import create_optimizer_v2, optimizer_kwargs
 from timm.scheduler import create_scheduler_v2, scheduler_kwargs
 from timm.utils import ApexScaler, NativeScaler
@@ -108,6 +112,8 @@ group.add_argument('--input-key', default=None, type=str,
                    help='Dataset key for input images.')
 group.add_argument('--target-key', default=None, type=str,
                    help='Dataset key for target labels.')
+group.add_argument('--undo-at-n-epoch', default=None, type=int,
+                   help='Undo at n epoch')
 
 # Model parameters
 group = parser.add_argument_group('Model parameters')
@@ -559,6 +565,9 @@ def main():
         **optimizer_kwargs(cfg=args),
         **args.opt_kwargs,
     )
+
+    # Check it has undo method
+    assert hasattr(optimizer, 'undo'), 'Optimizer must have `undo` method.'
 
     # setup automatic mixed-precision (AMP) loss scaling and op casting
     amp_autocast = suppress  # do nothing
@@ -1013,6 +1022,12 @@ def train_one_epoch(
 
         def _backward(_loss):
             if loss_scaler is not None:
+                undo = False
+                if args.undo_at_n_epoch is not None and args.undo_at_n_epoch == epoch:
+                    print(f"Perform undo at the beginning of Epoch {epoch}")
+                    undo = True
+                    args.undo_at_n_epoch = None
+
                 loss_scaler(
                     _loss,
                     optimizer,
@@ -1021,6 +1036,7 @@ def train_one_epoch(
                     parameters=model_parameters(model, exclude_head='agc' in args.clip_mode),
                     create_graph=second_order,
                     need_update=need_update,
+                    undo=undo
                 )
             else:
                 _loss.backward(create_graph=second_order)

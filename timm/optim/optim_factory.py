@@ -3,11 +3,12 @@ Hacked together by / Copyright 2021 Ross Wightman
 """
 import logging
 from itertools import islice
-from typing import Optional, Callable, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch import Tensor
 
 from timm.models import group_parameters
 
@@ -29,7 +30,6 @@ from .rmsprop_tf import RMSpropTF
 from .sgdp import SGDP
 from .sgdw import SGDW
 
-
 _logger = logging.getLogger(__name__)
 
 
@@ -37,6 +37,97 @@ _logger = logging.getLogger(__name__)
 _DEFAULT_FOREACH = {
     'lion',
 }
+
+
+# START MONKEY PATCHING
+
+def undo_sgd(params: List[Tensor],
+             d_p_list: List[Tensor],
+             momentum_buffer_list: List[Optional[Tensor]],
+             *,
+             weight_decay: float,
+             momentum: float,
+             lr: float,
+             dampening: float,
+             nesterov: bool):
+    r"""Functional API that performs SGD algorithm computation.
+
+    See :class:`~torch.optim.SGD` for details.
+    """
+
+    for i, param in enumerate(params):
+        original_dtype = param.dtype
+        param = param.cpu().double()
+
+        d_p = d_p_list[i]
+        d_p = d_p.cpu().double()
+
+        if momentum != 0:
+            buf = momentum_buffer_list[i]
+            buf = buf.cpu().double()
+
+            if nesterov:
+                param.add_(d_p.add(buf, alpha=momentum),
+                           alpha=lr).div_(1 - lr * weight_decay)
+            else:
+                param.add_(buf, alpha=lr)
+
+            if weight_decay != 0:
+                d_p = d_p.add(param, alpha=weight_decay)
+
+            m = torch.empty_like(buf).fill_(momentum)
+            buf.add_(d_p, alpha=dampening - 1).div_(m)
+
+            momentum_buffer_list[i].copy_(buf.type(original_dtype))
+        else:
+            param.add_(d_p, alpha=lr).div_(1 - lr * weight_decay)
+
+        params[i].copy_(param.type(original_dtype))
+
+
+@torch.no_grad()
+def undo(self):
+    print("!!!Performing undo!!!")
+    for group in self.param_groups:
+        params_with_grad = []
+        d_p_list = []
+        momentum_buffer_list = []
+        weight_decay = group['weight_decay']
+        momentum = group['momentum']
+        dampening = group['dampening']
+        nesterov = group['nesterov']
+        lr = group['lr']
+
+        for p in group['params']:
+            if p.grad is not None and p.prev_grad is not None:
+                params_with_grad.append(p)
+                d_p_list.append(p.prev_grad)
+
+                state = self.state[p]
+                if 'momentum_buffer' not in state:
+                    momentum_buffer_list.append(None)
+                else:
+                    momentum_buffer_list.append(state['momentum_buffer'])
+
+        undo_sgd(params_with_grad,
+                 d_p_list,
+                 momentum_buffer_list,
+                 weight_decay=weight_decay,
+                 momentum=momentum,
+                 lr=lr,
+                 dampening=dampening,
+                 nesterov=nesterov)
+
+        # update momentum_buffers in state
+        for p, momentum_buffer in zip(params_with_grad, momentum_buffer_list):
+            state = self.state[p]
+            state['momentum_buffer'] = momentum_buffer
+
+    print("!!!Undo complete!!!")
+
+
+setattr(optim.SGD, "undo", undo)
+# END MONKEY PATCHING
 
 
 def param_groups_weight_decay(
@@ -79,7 +170,8 @@ def _layer_map(model, layers_per_group=12, num_groups=None):
     names_trunk = []
     names_head = []
     for n, _ in model.named_parameters():
-        names_head.append(n) if _in_head(n, head_prefix) else names_trunk.append(n)
+        names_head.append(n) if _in_head(
+            n, head_prefix) else names_trunk.append(n)
 
     # group non-head layers
     num_trunk_layers = len(names_trunk)
@@ -111,13 +203,15 @@ def param_groups_layer_decay(
 
     if hasattr(model, 'group_matcher'):
         # FIXME interface needs more work
-        layer_map = group_parameters(model, model.group_matcher(coarse=False), reverse=True)
+        layer_map = group_parameters(
+            model, model.group_matcher(coarse=False), reverse=True)
     else:
         # fallback
         layer_map = _layer_map(model)
     num_layers = max(layer_map.values()) + 1
     layer_max = num_layers - 1
-    layer_scales = list(layer_decay ** (layer_max - i) for i in range(num_layers))
+    layer_scales = list(layer_decay ** (layer_max - i)
+                        for i in range(num_layers))
 
     for name, param in model.named_parameters():
         if not param.requires_grad:
@@ -152,7 +246,8 @@ def param_groups_layer_decay(
 
     if verbose:
         import json
-        _logger.info("parameter groups: \n%s" % json.dumps(param_group_names, indent=2))
+        _logger.info("parameter groups: \n%s" %
+                     json.dumps(param_group_names, indent=2))
 
     return list(param_groups.values())
 
@@ -240,7 +335,8 @@ def create_optimizer_v2(
             )
             weight_decay = 0.
         elif weight_decay and filter_bias_and_bn:
-            parameters = param_groups_weight_decay(model_or_params, weight_decay, no_weight_decay)
+            parameters = param_groups_weight_decay(
+                model_or_params, weight_decay, no_weight_decay)
             weight_decay = 0.
         else:
             parameters = model_or_params.parameters()
@@ -254,11 +350,13 @@ def create_optimizer_v2(
 
     if opt_lower.startswith('fused'):
         try:
-            from apex.optimizers import FusedNovoGrad, FusedAdam, FusedLAMB, FusedSGD
+            from apex.optimizers import (FusedAdam, FusedLAMB, FusedNovoGrad,
+                                         FusedSGD)
             has_apex = True
         except ImportError:
             has_apex = False
-        assert has_apex and torch.cuda.is_available(), 'APEX and CUDA required for fused optimizers'
+        assert has_apex and torch.cuda.is_available(
+        ), 'APEX and CUDA required for fused optimizers'
 
     if opt_lower.startswith('bnb'):
         try:
@@ -266,7 +364,8 @@ def create_optimizer_v2(
             has_bnb = True
         except ImportError:
             has_bnb = False
-        assert has_bnb and torch.cuda.is_available(), 'bitsandbytes and CUDA required for bnb optimizers'
+        assert has_bnb and torch.cuda.is_available(
+        ), 'bitsandbytes and CUDA required for bnb optimizers'
 
     opt_args = dict(weight_decay=weight_decay, **kwargs)
 
@@ -283,23 +382,28 @@ def create_optimizer_v2(
     if opt_lower == 'sgd' or opt_lower == 'nesterov':
         # NOTE 'sgd' refers to SGD + nesterov momentum for legacy / backwards compat reasons
         opt_args.pop('eps', None)
-        optimizer = optim.SGD(parameters, momentum=momentum, nesterov=True, **opt_args)
+        optimizer = optim.SGD(parameters, momentum=momentum,
+                              nesterov=True, **opt_args)
     elif opt_lower == 'momentum':
         opt_args.pop('eps', None)
-        optimizer = optim.SGD(parameters, momentum=momentum, nesterov=False, **opt_args)
+        optimizer = optim.SGD(parameters, momentum=momentum,
+                              nesterov=False, **opt_args)
     elif opt_lower == 'sgdp':
-        optimizer = SGDP(parameters, momentum=momentum, nesterov=True, **opt_args)
+        optimizer = SGDP(parameters, momentum=momentum,
+                         nesterov=True, **opt_args)
     elif opt_lower == 'sgdw' or opt_lower == 'nesterovw':
         # NOTE 'sgd' refers to SGD + nesterov momentum for legacy / backwards compat reasons
         opt_args.pop('eps', None)
-        optimizer = SGDW(parameters, momentum=momentum, nesterov=True, **opt_args)
+        optimizer = SGDW(parameters, momentum=momentum,
+                         nesterov=True, **opt_args)
     elif opt_lower == 'momentumw':
         opt_args.pop('eps', None)
-        optimizer = SGDW(parameters, momentum=momentum, nesterov=False, **opt_args)
+        optimizer = SGDW(parameters, momentum=momentum,
+                         nesterov=False, **opt_args)
 
     # adaptive
     elif opt_lower == 'adam':
-        optimizer = optim.Adam(parameters, **opt_args) 
+        optimizer = optim.Adam(parameters, **opt_args)
     elif opt_lower == 'adamw':
         optimizer = optim.AdamW(parameters, **opt_args)
     elif opt_lower == 'adamp':
@@ -336,23 +440,29 @@ def create_optimizer_v2(
     elif opt_lower == 'lambc':
         optimizer = Lamb(parameters, trust_clip=True, **opt_args)
     elif opt_lower == 'larc':
-        optimizer = Lars(parameters, momentum=momentum, trust_clip=True, **opt_args)
+        optimizer = Lars(parameters, momentum=momentum,
+                         trust_clip=True, **opt_args)
     elif opt_lower == 'lars':
         optimizer = Lars(parameters, momentum=momentum, **opt_args)
     elif opt_lower == 'nlarc':
-        optimizer = Lars(parameters, momentum=momentum, trust_clip=True, nesterov=True, **opt_args)
+        optimizer = Lars(parameters, momentum=momentum,
+                         trust_clip=True, nesterov=True, **opt_args)
     elif opt_lower == 'nlars':
-        optimizer = Lars(parameters, momentum=momentum, nesterov=True, **opt_args)
+        optimizer = Lars(parameters, momentum=momentum,
+                         nesterov=True, **opt_args)
     elif opt_lower == 'madgrad':
         optimizer = MADGRAD(parameters, momentum=momentum, **opt_args)
     elif opt_lower == 'madgradw':
-        optimizer = MADGRAD(parameters, momentum=momentum, decoupled_decay=True, **opt_args)
+        optimizer = MADGRAD(parameters, momentum=momentum,
+                            decoupled_decay=True, **opt_args)
     elif opt_lower == 'novograd' or opt_lower == 'nvnovograd':
         optimizer = NvNovoGrad(parameters, **opt_args)
     elif opt_lower == 'rmsprop':
-        optimizer = optim.RMSprop(parameters, alpha=0.9, momentum=momentum, **opt_args)
+        optimizer = optim.RMSprop(
+            parameters, alpha=0.9, momentum=momentum, **opt_args)
     elif opt_lower == 'rmsproptf':
-        optimizer = RMSpropTF(parameters, alpha=0.9, momentum=momentum, **opt_args)
+        optimizer = RMSpropTF(parameters, alpha=0.9,
+                              momentum=momentum, **opt_args)
     elif opt_lower == 'lion':
         opt_args.pop('eps', None)
         optimizer = Lion(parameters, **opt_args)
@@ -364,10 +474,12 @@ def create_optimizer_v2(
     # NVIDIA fused optimizers, require APEX to be installed
     elif opt_lower == 'fusedsgd':
         opt_args.pop('eps', None)
-        optimizer = FusedSGD(parameters, momentum=momentum, nesterov=True, **opt_args)
+        optimizer = FusedSGD(parameters, momentum=momentum,
+                             nesterov=True, **opt_args)
     elif opt_lower == 'fusedmomentum':
         opt_args.pop('eps', None)
-        optimizer = FusedSGD(parameters, momentum=momentum, nesterov=False, **opt_args)
+        optimizer = FusedSGD(parameters, momentum=momentum,
+                             nesterov=False, **opt_args)
     elif opt_lower == 'fusedadam':
         optimizer = FusedAdam(parameters, adam_w_mode=False, **opt_args)
     elif opt_lower == 'fusedadamw':
@@ -381,16 +493,19 @@ def create_optimizer_v2(
     # bitsandbytes optimizers, require bitsandbytes to be installed
     elif opt_lower == 'bnbsgd':
         opt_args.pop('eps', None)
-        optimizer = bnb.optim.SGD(parameters, momentum=momentum, nesterov=True, **opt_args)
+        optimizer = bnb.optim.SGD(
+            parameters, momentum=momentum, nesterov=True, **opt_args)
     elif opt_lower == 'bnbsgd8bit':
         opt_args.pop('eps', None)
-        optimizer = bnb.optim.SGD8bit(parameters, momentum=momentum, nesterov=True, **opt_args)
+        optimizer = bnb.optim.SGD8bit(
+            parameters, momentum=momentum, nesterov=True, **opt_args)
     elif opt_lower == 'bnbmomentum':
         opt_args.pop('eps', None)
         optimizer = bnb.optim.SGD(parameters, momentum=momentum, **opt_args)
     elif opt_lower == 'bnbmomentum8bit':
         opt_args.pop('eps', None)
-        optimizer = bnb.optim.SGD8bit(parameters, momentum=momentum, **opt_args)
+        optimizer = bnb.optim.SGD8bit(
+            parameters, momentum=momentum, **opt_args)
     elif opt_lower == 'bnbadam':
         optimizer = bnb.optim.Adam(parameters, **opt_args)
     elif opt_lower == 'bnbadam8bit':
