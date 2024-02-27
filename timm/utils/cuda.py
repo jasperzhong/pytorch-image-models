@@ -71,6 +71,7 @@ def step(self, optimizer, undo, *args, **kwargs):
                ) > 0, "No inf checks were recorded for this optimizer."
 
     if undo:
+        some_param = None
         # original state
         for group in optimizer.param_groups:
             for p in group['params']:
@@ -80,6 +81,8 @@ def step(self, optimizer, undo, *args, **kwargs):
                         some_momentum = optimizer.state[p]["momentum_buffer"].clone(
                         ).detach()
                     break
+            if some_param is not None:
+                break
 
     retval = self._maybe_opt_step(optimizer, optimizer_state, *args, **kwargs)
     if undo:
@@ -88,6 +91,7 @@ def step(self, optimizer, undo, *args, **kwargs):
         optimizer.undo()
 
         # check if the state is the same
+        some_momentum_undo = None
         for group in optimizer.param_groups:
             for p in group['params']:
                 if p.grad is not None:
@@ -100,6 +104,8 @@ def step(self, optimizer, undo, *args, **kwargs):
                         print("undo-then-redo momentum check: ",
                               torch.allclose(some_momentum, some_momentum_undo))
                     break
+            if some_param_undo is not None:
+                break
 
         # redo
         retval = self._maybe_opt_step(
