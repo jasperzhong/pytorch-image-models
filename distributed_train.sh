@@ -23,5 +23,5 @@ OMP_NUM_THREADS=20 NCCL_DEBUG=INFO NCCL_IB_DISABLE=1 torchrun \
     --rdzv_endpoint=$MASTER_IP:$MASTER_PORT \
     --rdzv_conf is_host=$IS_MASTER \
     train.py "$@" 
-    > train_imagenet.log 2>&1 
+    > train_imagenet_with_undo.log 2>&1 
 
