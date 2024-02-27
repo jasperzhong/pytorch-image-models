@@ -72,10 +72,12 @@ def step(self, optimizer, undo, *args, **kwargs):
 
     if undo:
         # original state
-        some_param = optimizer.param_groups[0]['params'][0].cpu()
-        if "momentum_buffer" in optimizer.state[some_param]:
-            some_momentum = optimizer.state[some_param]["momentum_buffer"].cpu(
-            )
+        for group in optimizer.param_groups:
+            for p in group['params']:
+                if p.grad is not None:
+                    some_param = p.clone().detach()
+                    if "momentum_buffer" in optimizer.state[p]:
+                        some_momentum = optimizer.state[p]["momentum_buffer"].clone().detach()
 
     retval = self._maybe_opt_step(optimizer, optimizer_state, *args, **kwargs)
     if undo:
@@ -84,14 +86,16 @@ def step(self, optimizer, undo, *args, **kwargs):
         optimizer.undo()
 
         # check if the state is the same
-        some_param_undo = optimizer.param_groups[0]['params'][0].cpu()
-        print("undo-then-redo param check: ",
-              torch.allclose(some_param, some_param_undo))
-        if "momentum_buffer" in optimizer.state[some_param_undo]:
-            some_momentum_undo = optimizer.state[some_param_undo]["momentum_buffer"].cpu(
-            )
-            print("undo-then-redo momentum check: ",
-                  torch.allclose(some_momentum, some_momentum_undo))
+        for group in optimizer.param_groups:
+            for p in group['params']:
+                if p.grad is not None:
+                    some_param_undo = p.clone().detach()
+                    print("undo-then-redo param check: ",
+                          torch.allclose(some_param, some_param_undo))
+                    if "momentum_buffer" in optimizer.state[p]:
+                        some_momentum_undo = optimizer.state[p]["momentum_buffer"].clone().detach()
+                        print("undo-then-redo momentum check: ",
+                              torch.allclose(some_momentum, some_momentum_undo))
 
         # redo
         retval = self._maybe_opt_step(
