@@ -1,5 +1,5 @@
 #!/bin/bash
-NNODES=4
+NNODES=3
 NUM_PROC=4
 MASTER_IP=10.28.1.29
 MASTER_PORT=11234
@@ -15,7 +15,7 @@ else
     echo "This is a worker node"
 fi
 
-OMP_NUM_THREADS=20 torchrun \
+OMP_NUM_THREADS=20 NCCL_DEBUG=INFO torchrun \
     --nnodes=$NNODES \
     --nproc_per_node=$NUM_PROC \
     --rdzv_id=1234 \
