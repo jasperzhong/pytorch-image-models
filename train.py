@@ -933,7 +933,7 @@ def main():
                 'train': train_metrics,
                 'validation': eval_metrics,
             })
-            print(f"Epoch time: {epoch_time - time.time():.2f}s")
+            print(f"Epoch time: {time.time() - epoch_time:.2f}s")
 
     except KeyboardInterrupt:
         pass
