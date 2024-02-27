@@ -21,7 +21,7 @@ OMP_NUM_THREADS=20 torchrun \
     --rdzv_id=1234 \
     --rdzv_backend=c10d \
     --rdzv_endpoint=$MASTER_IP:$MASTER_PORT \
-    --is_host=$IS_MASTER \
+    --rdzv_conf is_host=$IS_MASTER \
     train.py "$@" 
     > train_imagenet.log 2>&1 
 
