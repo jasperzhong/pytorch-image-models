@@ -15,7 +15,7 @@ else
     echo "This is a worker node"
 fi
 
-OMP_NUM_THREADS=20 NCCL_DEBUG=INFO NCCL_IB_DISABLE=1 torchrun \
+CUBLAS_WORKSPACE_CONFIG=:4096:8 OMP_NUM_THREADS=20 NCCL_DEBUG=INFO NCCL_IB_DISABLE=1 torchrun \
     --nnodes=$NNODES \
     --nproc_per_node=$NUM_PROC \
     --rdzv_id=1234 \
