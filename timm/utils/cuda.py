@@ -70,11 +70,28 @@ def step(self, optimizer, undo, *args, **kwargs):
     assert len(optimizer_state["found_inf_per_device"]
                ) > 0, "No inf checks were recorded for this optimizer."
 
+    if undo:
+        # original state
+        some_param = optimizer.param_groups[0]['params'][0].cpu()
+        if "momentum_buffer" in optimizer.state[some_param]:
+            some_momentum = optimizer.state[some_param]["momentum_buffer"].cpu(
+            )
+
     retval = self._maybe_opt_step(optimizer, optimizer_state, *args, **kwargs)
     if undo:
         assert hasattr(
             optimizer, "undo"), "The optimizer does not have an undo method"
         optimizer.undo()
+
+        # check if the state is the same
+        some_param_undo = optimizer.param_groups[0]['params'][0].cpu()
+        print("undo-then-redo param check: ",
+              torch.allclose(some_param, some_param_undo))
+        if "momentum_buffer" in optimizer.state[some_param_undo]:
+            some_momentum_undo = optimizer.state[some_param_undo]["momentum_buffer"].cpu(
+            )
+            print("undo-then-redo momentum check: ",
+                  torch.allclose(some_momentum, some_momentum_undo))
 
         # redo
         retval = self._maybe_opt_step(

@@ -99,9 +99,9 @@ def undo(self):
         lr = group['lr']
 
         for p in group['params']:
-            if p.grad is not None and p.prev_grad is not None:
+            if p.grad is not None:
                 params_with_grad.append(p)
-                d_p_list.append(p.prev_grad)
+                d_p_list.append(p.grad)
 
                 state = self.state[p]
                 if 'momentum_buffer' not in state:
