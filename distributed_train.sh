@@ -6,7 +6,7 @@ MASTER_PORT=11234
 export NCCL_SOCKET_IFNAME=enp225s0
 
 # get the IP address of the current node
-IP=`hostname -I | awk '{print $1}'`
+IP=`hostname -I | grep -o "10\.28\.1\.[0-9]\+"`
 if [ "$IP" = "$MASTER_IP" ]; then
     IS_MASTER=true
     echo "This is the master node"
