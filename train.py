@@ -424,7 +424,8 @@ def main():
 
     if torch.cuda.is_available():
         torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.benchmark = False
+        torch.use_deterministic_algorithms(True)
 
     args.prefetcher = not args.no_prefetcher
     args.grad_accum_steps = max(1, args.grad_accum_steps)
