@@ -598,6 +598,7 @@ def main():
             # fallback to CUDA only AMP for PyTorch < 1.10
             assert device.type == 'cuda'
             amp_autocast = torch.cuda.amp.autocast
+        print("amp_autocast: ", type(amp_autocast))
         if device.type == 'cuda' and amp_dtype == torch.float16:
             # loss scaler only used for float16 (half) dtype, bfloat16 does not need it
             loss_scaler = NativeScaler()
@@ -1040,7 +1041,7 @@ def train_one_epoch(
         data_time_m.update(accum_steps * (time.time() - data_start_time))
 
         def _forward():
-            with amp_autocast():
+            with amp_autocast(enabled=False):
                 output = model(input)
                 loss = loss_fn(output, target)
             if accum_steps > 1:
