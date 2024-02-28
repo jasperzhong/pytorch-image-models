@@ -173,12 +173,12 @@ def adamw_undo(self):
         beta1, beta2 = group['betas']
 
         for p in group['params']:
-            if p.grad is not None and p.prev_grad is not None:
+            if p.grad is not None:
                 params_with_grad.append(p)
                 if p.grad.is_sparse:
                     raise RuntimeError(
                         'Adam does not support sparse gradients, please consider SparseAdam instead')
-                grads.append(p.prev_grad)
+                grads.append(p.grad)
 
                 state = self.state[p]
                 # Don't need lazy state initialization
@@ -190,15 +190,15 @@ def adamw_undo(self):
                 state_steps.append(state['step'])
 
         undo_adamw(params_with_grad,
-                     grads,
-                     exp_avgs,
-                     exp_avg_sqs,
-                     state_steps,
-                     beta1=beta1,
-                     beta2=beta2,
-                     lr=group['lr'],
-                     weight_decay=group['weight_decay'],
-                     eps=group['eps'])
+                   grads,
+                   exp_avgs,
+                   exp_avg_sqs,
+                   state_steps,
+                   beta1=beta1,
+                   beta2=beta2,
+                   lr=group['lr'],
+                   weight_decay=group['weight_decay'],
+                   eps=group['eps'])
 
         # update exp_avg, exo_avg_sq in state
         for p, mt, vt in zip(params_with_grad, exp_avgs, exp_avg_sqs):
