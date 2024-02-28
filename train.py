@@ -578,7 +578,8 @@ def main():
     )
 
     # Check it has undo method
-    assert hasattr(optimizer, 'undo'), 'Optimizer must have `undo` method.'
+    if args.undo_at_n_epoch is not None:
+        assert hasattr(optimizer, 'undo'), 'Optimizer must have `undo` method.'
 
     # setup automatic mixed-precision (AMP) loss scaling and op casting
     amp_autocast = suppress  # do nothing
