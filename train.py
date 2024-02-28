@@ -1181,7 +1181,7 @@ def validate(
             if args.channels_last:
                 input = input.contiguous(memory_format=torch.channels_last)
 
-            with amp_autocast():
+            with amp_autocast(enabled=False):
                 output = model(input)
                 if isinstance(output, (tuple, list)):
                     output = output[0]
