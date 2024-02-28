@@ -2,6 +2,7 @@
 Hacked together by / Copyright 2021 Ross Wightman
 """
 import logging
+import math
 from itertools import islice
 from typing import Callable, List, Optional, Tuple
 
@@ -85,8 +86,43 @@ def undo_sgd(params: List[Tensor],
         params[i].copy_(param.type(original_dtype))
 
 
+def undo_adamw(params: List[Tensor],
+               grads: List[Tensor],
+               exp_avgs: List[Tensor],
+               exp_avg_sqs: List[Tensor],
+               state_steps: List[int],
+               *,
+               beta1: float,
+               beta2: float,
+               lr: float,
+               weight_decay: float,
+               eps: float):
+    for i, param in enumerate(params):
+        grad = grads[i]
+        exp_avg = exp_avgs[i]
+        exp_avg_sq = exp_avg_sqs[i]
+        # same as step
+        # because the worker didn't call optim.adam to update step
+        step = state_steps[i]
+
+        bias_correction1 = 1 - beta1 ** step
+        bias_correction2 = 1 - beta2 ** step
+
+        # undo param
+        step_size = lr / bias_correction1
+        denom = (exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(eps)
+        param.addcdiv_(exp_avg, denom, value=step_size)
+        param.div_(1 - lr * weight_decay)
+
+        # undo Vt
+        exp_avg_sq.sub_(grad ** 2, alpha=1 - beta2).div_(beta2)
+
+        # undo Mt
+        exp_avg.sub_(grad, alpha=1 - beta1).div_(beta1)
+
+
 @torch.no_grad()
-def undo(self):
+def sgd_undo(self):
     print("!!!Performing undo!!!")
     for group in self.param_groups:
         params_with_grad = []
@@ -126,7 +162,54 @@ def undo(self):
     print("!!!Undo complete!!!")
 
 
-setattr(optim.SGD, "undo", undo)
+@torch.no_grad()
+def adamw_undo(self):
+    for group in self.param_groups:
+        params_with_grad = []
+        grads = []
+        exp_avgs = []
+        exp_avg_sqs = []
+        state_steps = []
+        beta1, beta2 = group['betas']
+
+        for p in group['params']:
+            if p.grad is not None and p.prev_grad is not None:
+                params_with_grad.append(p)
+                if p.grad.is_sparse:
+                    raise RuntimeError(
+                        'Adam does not support sparse gradients, please consider SparseAdam instead')
+                grads.append(p.prev_grad)
+
+                state = self.state[p]
+                # Don't need lazy state initialization
+
+                exp_avgs.append(state['exp_avg'])
+                exp_avg_sqs.append(state['exp_avg_sq'])
+
+                # record the step after step update
+                state_steps.append(state['step'])
+
+        undo_adamw(params_with_grad,
+                     grads,
+                     exp_avgs,
+                     exp_avg_sqs,
+                     state_steps,
+                     beta1=beta1,
+                     beta2=beta2,
+                     lr=group['lr'],
+                     weight_decay=group['weight_decay'],
+                     eps=group['eps'])
+
+        # update exp_avg, exo_avg_sq in state
+        for p, mt, vt in zip(params_with_grad, exp_avgs, exp_avg_sqs):
+            state = self.state[p]
+            state['step'] -= 1
+            state['exp_avg_sq'] = vt
+            state['exp_avg'] = mt
+
+
+setattr(optim.SGD, "undo", sgd_undo)
+setattr(optim.AdamW, "undo", adamw_undo)
 # END MONKEY PATCHING
 
 
